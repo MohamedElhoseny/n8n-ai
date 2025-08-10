@@ -20,7 +20,7 @@ ENV npm_config_python=python3
 ENV PUPPETEER_SKIP_DOWNLOAD=1
 
 # ---- install with FULL logs (workspace/root)
-RUN pnpm -w install --frozen-lockfile --config.ignore-scripts=false
+RUN pnpm -w install --frozen-lockfile --config.ignore-scripts=false --loglevel=verbose
 
 # build CLI
 RUN pnpm --filter @n8n/cli build
