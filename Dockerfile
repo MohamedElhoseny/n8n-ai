@@ -1,41 +1,39 @@
-# Use Node.js LTS base image
-FROM node:20-bullseye
-
-# Install required system dependencies
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    build-essential \
- && rm -rf /var/lib/apt/lists/*
-
-# Enable Corepack and prepare pnpm
-RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
-
-# Env for smoother CI/container installs
-ENV PNPM_CONFIG_ENGINE_STRICT=false \
-    npm_config_python=python3 \
-    PUPPETEER_SKIP_DOWNLOAD=1 \
-    CI=true \
-    LEFTHOOK=0
-
-# Set working directory
+# ---- build stage ----
+FROM node:22-bullseye AS build
 WORKDIR /app
 
-# Copy package files first for better build cache
-COPY package.json pnpm-lock.yaml* ./
+# Native deps for node-gyp, sqlite3, sharp(libvips), git, and additional debugging tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential python3 python-is-python3 git ca-certificates pkg-config \
+    libssl-dev libc6-dev libsqlite3-dev libvips-dev \
+    g++ make cmake \
+  && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies without running postinstall hooks
-RUN pnpm install --frozen-lockfile --config.ignore-scripts=true --reporter=append-only
+# pnpm
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-# Copy all project files
+# bring the whole repo (ensures patches/ is present)
 COPY . .
 
-# Build the project (optional – only if you need a build step)
-# RUN pnpm run build
+# helpful envs
+ENV PNPM_CONFIG_ENGINE_STRICT=false
+ENV npm_config_python=python3
+ENV PUPPETEER_SKIP_DOWNLOAD=1
 
-# Expose port (update if needed)
-EXPOSE 3000
+# ---- install with FULL logs (workspace/root) and verbose output, with script fallback
+RUN pnpm -w install --frozen-lockfile --config.ignore-scripts=false --loglevel=verbose || \
+    pnpm -w install --frozen-lockfile --config.ignore-scripts=true
 
-# Start the application
-CMD ["pnpm", "start"]
+# build CLI
+RUN pnpm --filter @n8n/cli build
+
+# ---- runtime ----
+FROM node:22-bullseye
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/packages /app/packages
+COPY --from=build /app/node_modules /app/node_modules
+RUN useradd -ms /bin/bash node && mkdir -p /home/node/.n8n && chown -R node:node /home/node
+USER node
+EXPOSE 5678
+CMD ["node", "packages/cli/dist/main.js"]
