@@ -148,6 +148,9 @@ export default mergeConfig(
 			// This causes test to fail but is required for actually running it
 			// ...(NODE_ENV !== 'test' ? { 'global': 'globalThis' } : {}),
 			...(NODE_ENV === 'development' ? { 'process.env': {} } : {}),
+			'process.env.TREE_SITTER_WASM_PATH': JSON.stringify(
+				pathPosix.join(publicPath, 'tree-sitter.wasm'),
+			),
 			BASE_PATH: `'${publicPath}'`,
 		},
 		plugins,
@@ -171,6 +174,7 @@ export default mergeConfig(
 			target,
 		},
 		optimizeDeps: {
+			exclude: ['web-tree-sitter'],
 			esbuildOptions: {
 				target,
 			},
