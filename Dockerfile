@@ -14,20 +14,24 @@ RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 # Bring the whole repo (patches/, turbo.json, workspaces, etc.)
 COPY . .
 
-# CI-friendly install; skip git hooks; force community build
+# CI-friendly install; skip git hooks; community build; big heap; no telemetry
 ENV LEFTHOOK=0 \
     CI=true \
     PNPM_CONFIG_ENGINE_STRICT=false \
     npm_config_python=python3 \
     PUPPETEER_SKIP_DOWNLOAD=1 \
     N8N_RELEASE_TYPE=community \
-    TURBO_TELEMETRY_DISABLED=1
+    TURBO_TELEMETRY_DISABLED=1 \
+    NODE_OPTIONS="--max-old-space-size=8192"
 
 # 1) Install ALL workspace deps
 RUN pnpm install --frozen-lockfile
 
-# 2) Increase Node heap + serialize Turbo to avoid OOM in big frontend packages
-ENV NODE_OPTIONS="--max-old-space-size=6144"
+# 2) Build big frontends first (serialized) for clearer errors
+RUN pnpm --filter @n8n/chat run build
+RUN pnpm --filter @n8n/editor-ui run build
+
+# 3) Build everything else (serialized to keep RAM low)
 RUN pnpm -w turbo run build --concurrency=1
 
 # ---------- RUNTIME STAGE ----------
