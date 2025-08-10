@@ -2,42 +2,43 @@
 FROM node:22-bullseye AS build
 WORKDIR /app
 
-# Native deps for node-gyp (sqlite3, sharp, etc.) + git
+# Native deps for node-gyp (sqlite3, sharp/libvips), git, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3 python-is-python3 git ca-certificates pkg-config \
     libssl-dev libc6-dev libsqlite3-dev libvips-dev \
   && rm -rf /var/lib/apt/lists/*
 
-# pnpm (n8n uses pnpm workspaces)
+# pnpm for the workspace
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-# Bring the whole repo so patches/ and workspace files are present
+# Bring the whole repo (ensures patches/, turbo.json, workspace files are present)
 COPY . .
 
-# Env to make installs deterministic in CI and to SKIP lefthook hooks
-ENV PNPM_CONFIG_ENGINE_STRICT=false \
+# Env: skip git hooks; ensure community build; quiet turbo
+ENV LEFTHOOK=0 \
+    CI=true \
+    PNPM_CONFIG_ENGINE_STRICT=false \
     npm_config_python=python3 \
     PUPPETEER_SKIP_DOWNLOAD=1 \
-    CI=true \
-    LEFTHOOK=0
+    N8N_RELEASE_TYPE=community \
+    TURBO_TELEMETRY_DISABLED=1
 
-# Install workspace deps (scripts enabled; lefthook disabled by env above)
-RUN pnpm -w install --frozen-lockfile --config.ignore-scripts=false --loglevel=verbose
+# 1) Install ALL workspace deps (recursive)
+RUN pnpm install --frozen-lockfile
 
-# Build the CLI package (workspaces aware)
-# If your pnpm version ever complains, the fallback builds directly in the package dir.
-RUN pnpm -w --filter "@n8n/cli" build || pnpm --dir packages/cli build
+# 2) Build the monorepo (Turbo figures out the right order)
+RUN pnpm run build
 
 # ---------- runtime stage ----------
 FROM node:22-bullseye
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy built workspace (packages + node_modules)
+# Copy built workspace
 COPY --from=build /app/packages /app/packages
 COPY --from=build /app/node_modules /app/node_modules
 
-# Ensure data dir exists; DO NOT add the user (already present)
+# Ensure data dir exists (volume will mount here in Dokploy)
 RUN mkdir -p /home/node/.n8n && chown -R node:node /home/node
 USER node
 
