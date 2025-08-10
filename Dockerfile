@@ -1,20 +1,29 @@
 # ---- build stage ----
 FROM node:22-bullseye AS build
 WORKDIR /app
+
+# Native deps for node-gyp (sqlite3, etc.) + git
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ git ca-certificates pkg-config \
+    build-essential python3 python-is-python3 git ca-certificates pkg-config \
+    libssl-dev libc6-dev libsqlite3-dev \
   && rm -rf /var/lib/apt/lists/*
 
+# Use pnpm
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-# Copy everything so patches/ is present
+# Copy repo (ensure patches/ is included)
 COPY . .
 
-# (optional) relax engine check if any workspace is strict
+# Relax engine strictness if any workspace enforces it
 ENV PNPM_CONFIG_ENGINE_STRICT=false
+# Help node-gyp find python
+ENV npm_config_python=python3
 
-# Install & build
-RUN pnpm install --frozen-lockfile --config.ignore-scripts=false
+# Install deps (show debug log on failure)
+RUN pnpm install --frozen-lockfile --config.ignore-scripts=false --reporter=append-only \
+  || (echo "---- pnpm debug log ----" && cat /root/.pnpm-debug.log || true && exit 1)
+
+# Build CLI
 RUN pnpm --filter @n8n/cli build
 
 # ---- runtime ----
