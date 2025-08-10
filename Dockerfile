@@ -2,24 +2,25 @@
 FROM node:22-bullseye AS build
 WORKDIR /app
 
+# Native deps for node-gyp, sqlite3, sharp(libvips), git
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential python3 python-is-python3 git ca-certificates pkg-config \
-    libssl-dev libc6-dev libsqlite3-dev \
+    libssl-dev libc6-dev libsqlite3-dev libvips-dev \
   && rm -rf /var/lib/apt/lists/*
 
+# pnpm
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-# copy repo so patches/ exists
+# bring the whole repo (ensures patches/ is present)
 COPY . .
 
+# helpful envs
 ENV PNPM_CONFIG_ENGINE_STRICT=false
 ENV npm_config_python=python3
-# optional: avoid big browser downloads if any package uses puppeteer
 ENV PUPPETEER_SKIP_DOWNLOAD=1
 
-# >>> INSTALL (print pnpm debug on failure)
-RUN pnpm install --frozen-lockfile --config.ignore-scripts=false --reporter=append-only \
-  || (echo "---- pnpm debug log ----" && (test -f .pnpm-debug.log && cat .pnpm-debug.log || true) && exit 1)
+# ---- install with FULL logs (workspace/root)
+RUN pnpm -w install --frozen-lockfile --config.ignore-scripts=false
 
 # build CLI
 RUN pnpm --filter @n8n/cli build
