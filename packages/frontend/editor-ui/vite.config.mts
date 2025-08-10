@@ -171,6 +171,7 @@ export default mergeConfig(
 			target,
 		},
 		optimizeDeps: {
+			exclude: ['web-tree-sitter'],
 			esbuildOptions: {
 				target,
 			},
