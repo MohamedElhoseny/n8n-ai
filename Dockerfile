@@ -2,14 +2,28 @@
 FROM node:22-bullseye AS build
 WORKDIR /app
 
-# Use pnpm (n8n uses it)
+# System deps for node-gyp/native modules + git
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ git ca-certificates pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
+# Use pnpm
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-# Install deps & build CLI
+# Improve caching: fetch deps first, then copy source
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# Some workspaces also need the top-level 'packages/*/package.json' for fetch;
+# if fetch complains, comment the line above and just copy everything early.
+RUN pnpm fetch
+
+# Now copy the whole repo
 COPY . .
-# If you ever need to bypass engines (not recommended):
-# ENV npm_config_engine_strict=false
-RUN pnpm install --frozen-lockfile
+
+# Loosen engine check just in case some workspace enforces >=22.16 strictly
+ENV PNPM_CONFIG_ENGINE_STRICT=false
+
+# Install and build
+RUN pnpm install --frozen-lockfile --config.ignore-scripts=false
 RUN pnpm --filter @n8n/cli build
 
 # ---- runtime ----
@@ -17,7 +31,7 @@ FROM node:22-bullseye
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy built workspace
+# Copy runtime bits
 COPY --from=build /app/packages /app/packages
 COPY --from=build /app/node_modules /app/node_modules
 
